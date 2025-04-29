@@ -3,12 +3,16 @@ package br.com.marcosprado.filmlocationapi.service;
 import br.com.marcosprado.filmlocationapi.application.dto.FilmLocationResponseDTO;
 import br.com.marcosprado.filmlocationapi.domain.Film;
 import br.com.marcosprado.filmlocationapi.domain.Location;
+import br.com.marcosprado.filmlocationapi.domain.exception.NoDataFoundException;
 import br.com.marcosprado.filmlocationapi.port.http.HttpService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Year;
@@ -31,25 +35,36 @@ public class FilmLocationService {
     public List<FilmLocationResponseDTO> getFilmLocationByUserLocation(String input) {
         String location = input.trim();
         if (location.isBlank()) {
-            throw new RuntimeException("Location cannot be empty");
+            throw new IllegalArgumentException("Location cannot be empty");
         }
 
         try {
-            String urlEncoded = URLEncoder.encode(location, StandardCharsets.UTF_8);
-            URI uri = new URI(BASE_URL + urlEncoded);
-
+            URI uri = buildUriFromLocation(location);
             String response = httpService.get(uri);
-            JsonNode jsonNode = objectMapper.readTree(response);
+            JsonNode jsonNode = parseJson(response);
+
             if (jsonNode == null || jsonNode.isEmpty()) {
-                throw new RuntimeException("No data found for the given location");
+                throw new NoDataFoundException("No data found for the given location");
             }
 
             List<Film> films = parseApiResponse(jsonNode);
             return FilmLocationResponseDTO.fromDomain(films);
-        } catch (Exception exception) {
-            System.out.println("Erro ao buscar dados da API: " + exception.getMessage());
-            throw new RuntimeException("Erro ao buscar dados da API: " + exception.getMessage());
+        } catch (URISyntaxException | UnsupportedEncodingException ex) {
+            throw new RuntimeException("Erro ao construir a URI para a API");
+        } catch (IOException ex) {
+            throw new RuntimeException("Erro ao processar resposta da API");
+        } catch (Exception ex) {
+            throw new RuntimeException("Erro inesperado ao buscar dados da API");
         }
+    }
+
+    private URI buildUriFromLocation(String location) throws URISyntaxException, UnsupportedEncodingException {
+        String encodedLocation = URLEncoder.encode(location, StandardCharsets.UTF_8);
+        return new URI(BASE_URL + encodedLocation);
+    }
+
+    private JsonNode parseJson(String response) throws IOException {
+        return objectMapper.readTree(response);
     }
 
     private List<Film> parseApiResponse(JsonNode jsonNode) {
